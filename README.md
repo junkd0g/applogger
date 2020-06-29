@@ -8,9 +8,9 @@ go get -u github.com/junkd0g/applogger
 
 ## Running the tests
 
-go test ./..
+go test ./...
 
-## Examples
+## Example
 
 ```go
 package main
