@@ -4,7 +4,7 @@ Package junkd0g/applogger is a simple ndjson logger
 
 ## Installing
 
-go get -u github.com/gorilla/mux
+go get -u github.com/junkd0g/applogger
 
 ## Running the tests
 
