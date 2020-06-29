@@ -13,12 +13,13 @@ func TestLog(t *testing.T) {
 	filePath := directoryPath + "/log.ndjson"
 	os.MkdirAll(directoryPath, os.ModePerm)
 
-	okman := AppLogger{Path: filePath}
-	okman.init()
-	okman.Log("INFO", "main", "app", "This is a test")
-	okman.Log("ERROR", "main", "app", "Cannot open file")
-	okman.LogHTTP("INFO", "controller", "perform", "Response: { \"status\": 200}", 200, 0.74453)
-	okman.LogHTTP("ERROR", "controller", "perform", "Response: { \"status\": 500}", 500, 2.73353)
+	logger := AppLogger{Path: filePath}
+	logger.Initialise()
+
+	logger.Log("INFO", "main", "app", "This is a test")
+	logger.Log("ERROR", "main", "app", "Cannot open file")
+	logger.LogHTTP("INFO", "controller", "perform", "Response: { \"status\": 200}", 200, 0.74453)
+	logger.LogHTTP("ERROR", "controller", "perform", "Response: { \"status\": 500}", 500, 2.73353)
 
 	file, err := os.Open(filePath)
 	if err != nil {

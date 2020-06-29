@@ -13,10 +13,16 @@ import (
 var (
 	generalLogger *log.Logger
 	errorLogger   *log.Logger
+	LogInter      AppLoggerInterface
 )
 
 type AppLogger struct {
 	Path string
+}
+
+type AppLoggerInterface interface {
+	Log(level string, logPackage string, logFunc string, message string)
+	LogHTTP(level string, logPackage string, logFunc string, message string, code int, duration float64)
 }
 
 // logNDJOSNHTTP json format for logs in lib and controller packages
@@ -41,7 +47,7 @@ type logNDJOSNHTTP struct {
 	Duration   float64   `json:"duration"`
 }
 
-func (r AppLogger) init() {
+func (r AppLogger) Initialise() {
 	generalLog, err := os.OpenFile(r.Path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		fmt.Println("Error opening file:", err)
