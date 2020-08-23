@@ -13,7 +13,6 @@ import (
 var (
 	generalLogger *log.Logger
 	errorLogger   *log.Logger
-	LogInter      AppLoggerInterface
 )
 
 type AppLogger struct {
