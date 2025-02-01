@@ -80,14 +80,14 @@ func (l LogLevel) String() string {
 
 // LogEntry represents a single log entry in NDJSON format.
 type LogEntry struct {
-	PID        string                 `json:"pid"`        // Unique identifier for the log event.
-	Level      string                 `json:"level"`      // Log severity level.
-	Package    string                 `json:"package"`    // Package name where the log was generated.
-	Func       string                 `json:"func"`       // Function name where the log was generated.
-	Message    string                 `json:"message"`    // Actual log message.
-	Timestamp  time.Time              `json:"timestamp"`  // Time when the log was created.
-	Code       int                    `json:"code,omitempty"` // HTTP status code (if applicable).
-	Duration   float64                `json:"duration,omitempty"` // Request duration in seconds (if applicable).
+	PID        string                 `json:"pid"`                  // Unique identifier for the log event.
+	Level      string                 `json:"level"`                // Log severity level.
+	Package    string                 `json:"package"`              // Package name where the log was generated.
+	Func       string                 `json:"func"`                 // Function name where the log was generated.
+	Message    string                 `json:"message"`              // Actual log message.
+	Timestamp  time.Time              `json:"timestamp"`            // Time when the log was created.
+	Code       int                    `json:"code,omitempty"`       // HTTP status code (if applicable).
+	Duration   float64                `json:"duration,omitempty"`   // Request duration in seconds (if applicable).
 	Attributes map[string]interface{} `json:"attributes,omitempty"` // Extracted context values.
 }
 
