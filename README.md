@@ -1,4 +1,4 @@
-# 🔥 Applogger - The Ultimate Structured Logging Library for Go
+# Applogger - The Structured Logging Library for Go
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/junkd0g/applogger)](https://goreportcard.com/report/github.com/junkd0g/applogger)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -6,7 +6,7 @@
 
 ## 🚀 Overview
 
-`applogger` is a **high-performance structured logging library** for Go that writes logs in **NDJSON format** (Newline Delimited JSON). Designed for **concurrent** and **production-level** applications, it provides:
+`applogger` is a **structured logging library** for Go that writes logs in **NDJSON format** (Newline Delimited JSON).
 
 - **Structured Logging**: Outputs logs in JSON format for easy parsing.
 - **Log Levels**: Supports Debug, Info, Warn, Error, and Fatal.
