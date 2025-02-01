@@ -36,7 +36,7 @@ package main
 import (
 	"context"
 	"log"
-	"github.com/your-repo/applogger"
+	"github.com/junkd0g/applogger"
 )
 
 func main() {
@@ -51,6 +51,41 @@ func main() {
 	logger.Log(context.Background(), applogger.Info, "Application started successfully")
 }
 ```
+
+Logging with Context (Key-Value Pair Extraction)
+
+```go
+package main
+
+import (
+	"context"
+	"github.com/junkd0g/applogger"
+)
+
+func main() {
+	logger, _ := applogger.NewLogger("app.log")
+	defer logger.Close()
+
+	ctx := context.WithValue(context.Background(), "userID", "12345")
+	logger.Log(ctx, applogger.Info, "User logged in")
+}
+```
+
+HTTP Logging
+
+```go
+logger.LogHTTP(context.Background(), applogger.Info, "GET /api/user successful", 200, 0.125)
+```
+
+Fatal Logging (Exits Application)
+
+```go
+logger.Log(context.Background(), applogger.Fatal, "Critical system failure!")
+```
+
+## 📝 License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
 
 ## Authors
 
