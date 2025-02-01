@@ -1,49 +1,31 @@
-# Applogger
+# 🔥 Applogger - The Ultimate Structured Logging Library for Go
 
-Package junkd0g/applogger is a simple ndjson logger
+[![Go Report Card](https://goreportcard.com/badge/github.com/junkd0g/applogger)](https://goreportcard.com/report/github.com/junkd0g/applogger)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![GoDoc](https://pkg.go.dev/badge/github.com/your-repo/applogger.svg)](https://pkg.go.dev/github.com/junkd0g/applogger)
 
-## Installing
+## 🚀 Overview
 
-go get -u github.com/junkd0g/applogger
+`applogger` is a **high-performance structured logging library** for Go that writes logs in **NDJSON format** (Newline Delimited JSON). Designed for **concurrent** and **production-level** applications, it provides:
 
-## Running the tests
+- **Structured Logging**: Outputs logs in JSON format for easy parsing.
+- **Log Levels**: Supports Debug, Info, Warn, Error, and Fatal.
+- **Concurrency Safe**: Uses mutex locking for safe concurrent writes.
+- **Automatic Caller Info**: Captures the package and function where the log originated.
+- **HTTP Logging**: Supports logging HTTP response codes and request durations.
+- **Context-Aware Logging**: Supports extracting key-value pairs from `context.Context`.
+- **Graceful Shutdown**: Ensures log files are properly closed on termination.
 
-go test ./...
+---
 
-## Example
+## 📦 Installation
 
-```go
-package main
+To install `applogger`, simply run:
 
-import (
-	"net/http"
-
-	"github.com/gorilla/mux"
-	"github.com/junkd0g/applogger"
-)
-
-func HelloWorld(w http.ResponseWriter, r *http.Request) {
-
-	logger := applogger.AppLogger{Path: "/tmp/logger.ndjson"}
-	logger.Initialise()
-
-	response := "{ \"message\" : \"Hello World\"}"
-	logger.Log("INFO", "main", "HelloWorld", response)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(response))
-}
-
-func main() {
-
-	router := mux.NewRouter().StrictSlash(true)
-	router.HandleFunc("/", HelloWorld)
-
-	http.ListenAndServe(":8076", router)
-}
-
-```
+```sh
+go get -u github.com/your-repo/applogger
 
 ## Authors
 
 * **Iordanis Paschalidis** -[junkd0g](https://github.com/junkd0g)
+```
