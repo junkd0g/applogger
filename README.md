@@ -2,7 +2,7 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/junkd0g/applogger)](https://goreportcard.com/report/github.com/junkd0g/applogger)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![GoDoc](https://pkg.go.dev/badge/github.com/your-repo/applogger.svg)](https://pkg.go.dev/github.com/junkd0g/applogger)
+[![GoDoc](https://pkg.go.dev/badge/github.com/junkd0g/applogger.svg)](https://pkg.go.dev/github.com/junkd0g/applogger)
 
 ## 🚀 Overview
 
