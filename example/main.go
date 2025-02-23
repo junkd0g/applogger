@@ -8,6 +8,10 @@ import (
 	"github.com/junkd0g/applogger"
 )
 
+type CtxKey string
+
+const apploggerFieldsKey CtxKey = "applogger_fields"
+
 func main() {
 	// Initialize the logger to write to "app.log"
 	logger, err := applogger.NewLogger("app.log")
@@ -23,7 +27,8 @@ func main() {
 		"session_id": "sess-abc",
 		"custom":     "extra info",
 	}
-	ctx := context.WithValue(context.Background(), "applogger_fields", extraFields)
+	//nolint:SA1029
+	ctx := context.WithValue(context.Background(), apploggerFieldsKey, extraFields)
 	logger.Log(ctx, applogger.Info, "Logging with context extra fields")
 
 	// Example 2: Log using WithFields to attach default fields to the logger.

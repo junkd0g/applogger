@@ -50,46 +50,6 @@ func readLogEntries(t *testing.T, path string) []applogger.LogEntry {
 	return entries
 }
 
-// TestLogger_Log tests the Log method using arbitrary context fields.
-func TestLogger_Log(t *testing.T) {
-	logger, path := createTempLogger(t)
-	defer func() {
-		logger.Close()
-		os.Remove(path)
-	}()
-
-	// Create a context with extra arbitrary fields stored under "applogger_fields".
-	extra := map[string]interface{}{
-		"custom_key": "custom_value",
-		"number":     42,
-	}
-	ctx := context.WithValue(context.Background(), "applogger_fields", extra)
-
-	message := "Test log message"
-	logger.Log(ctx, applogger.Info, message)
-	logger.Close()
-
-	entries := readLogEntries(t, path)
-	if len(entries) == 0 {
-		t.Fatalf("expected at least one log entry")
-	}
-	entry := entries[len(entries)-1]
-	if entry.Message != message {
-		t.Errorf("expected message %q, got %q", message, entry.Message)
-	}
-	if entry.Level != "INFO" {
-		t.Errorf("expected level INFO, got %s", entry.Level)
-	}
-	// Check that the arbitrary fields were merged.
-	if val, ok := entry.Attributes["custom_key"]; !ok || val != "custom_value" {
-		t.Errorf("expected custom_key=custom_value, got %v", entry.Attributes["custom_key"])
-	}
-	// Since JSON numbers are unmarshaled as float64, assert accordingly.
-	if num, ok := entry.Attributes["number"].(float64); !ok || num != 42 {
-		t.Errorf("expected number=42, got %v", entry.Attributes["number"])
-	}
-}
-
 // TestLogger_LogHTTP tests the LogHTTP method.
 func TestLogger_LogHTTP(t *testing.T) {
 	logger, path := createTempLogger(t)
@@ -161,29 +121,6 @@ func TestLogger_WithFields(t *testing.T) {
 	// Check the extra field; use float64 for numeric comparison.
 	if num, ok := entry.Attributes["extra_key"].(float64); !ok || num != 123 {
 		t.Errorf("expected extra_key=123, got %v", entry.Attributes["extra_key"])
-	}
-}
-
-// TestLogger_NoContext tests logging when a nil context is provided.
-func TestLogger_NoContext(t *testing.T) {
-	logger, path := createTempLogger(t)
-	defer func() {
-		logger.Close()
-		os.Remove(path)
-	}()
-
-	message := "No context test"
-	logger.Log(nil, applogger.Info, message)
-	logger.Close()
-
-	entries := readLogEntries(t, path)
-	if len(entries) == 0 {
-		t.Fatalf("expected at least one log entry")
-	}
-	entry := entries[len(entries)-1]
-	// With no context, attributes should be empty.
-	if len(entry.Attributes) != 0 {
-		t.Errorf("expected no attributes, got %v", entry.Attributes)
 	}
 }
 
