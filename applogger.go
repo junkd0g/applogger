@@ -1,47 +1,9 @@
-/*
-Package applogger provides a structured logging system in NDJSON (Newline Delimited JSON) format.
-This package is built for performance, concurrency safety, and extensibility, ensuring minimal
-overhead while providing comprehensive logs.
-
-### Features:
-- **Structured Logging**: Outputs logs in JSON format for easy parsing.
-- **Log Levels**: Supports Debug, Info, Warn, Error, and Fatal levels.
-- **Context-Aware Logging**: Extracts key-value pairs from `context.Context`.
-- **Concurrency Safe**: Uses mutex locking for safe concurrent writes.
-- **Automatic Caller Info**: Captures the package and function where the log was generated.
-- **HTTP Logging**: Supports logging HTTP response codes and request durations.
-- **Graceful Shutdown**: Ensures log files are properly closed on termination.
-
-This package is designed for use in production environments where detailed logging is critical.
-If this documentation isn't clear enough, Kim Jong-un will personally hunt us down. So read carefully.
-
-Usage Example:
-
-	package main
-
-	import (
-		"context"
-		"log"
-		"applogger"
-	)
-
-	func main() {
-		logger, err := applogger.NewLogger("app.log")
-		if err != nil {
-			log.Fatalf("Failed to initialize logger: %v", err)
-		}
-		defer logger.Close()
-
-		ctx := context.WithValue(context.Background(), "userID", "1234")
-		logger.Log(ctx, applogger.Info, "Application started successfully")
-	}
-*/
-
 package applogger
 
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log"
 	"os"
 	"runtime"
@@ -53,11 +15,11 @@ import (
 type LogLevel int
 
 const (
-	Debug LogLevel = iota // Debug-level messages, typically used for development and troubleshooting.
-	Info                  // Informational messages that highlight application progress.
-	Warn                  // Warning messages that indicate a potential problem.
-	Error                 // Error messages indicating failures that need attention.
-	Fatal                 // Fatal messages causing the application to exit immediately.
+	Debug LogLevel = iota // Debug-level messages.
+	Info                  // Informational messages.
+	Warn                  // Warning messages.
+	Error                 // Error messages.
+	Fatal                 // Fatal messages that exit the application.
 )
 
 // String converts a LogLevel into its string representation.
@@ -84,35 +46,42 @@ type LogEntry struct {
 	Level      string                 `json:"level"`                // Log severity level.
 	Package    string                 `json:"package"`              // Package name where the log was generated.
 	Func       string                 `json:"func"`                 // Function name where the log was generated.
-	Message    string                 `json:"message"`              // Actual log message.
+	Message    string                 `json:"message"`              // Log message.
 	Timestamp  time.Time              `json:"timestamp"`            // Time when the log was created.
 	Code       int                    `json:"code,omitempty"`       // HTTP status code (if applicable).
 	Duration   float64                `json:"duration,omitempty"`   // Request duration in seconds (if applicable).
-	Attributes map[string]interface{} `json:"attributes,omitempty"` // Extracted context values.
+	Attributes map[string]interface{} `json:"attributes,omitempty"` // Merged attributes from context and default fields.
 }
 
-// Logger is a structured logging system for concurrent safe NDJSON logging.
+// Logger is a structured logging system for NDJSON logs.
 type Logger struct {
-	logger *log.Logger // Internal Go logger.
-	mu     sync.Mutex  // Mutex to ensure concurrent safety.
-	file   *os.File    // Log file handle.
+	logger        *log.Logger            // Internal Go logger.
+	mu            *sync.Mutex            // Mutex for concurrent safety.
+	file          *os.File               // Log file handle.
+	defaultFields map[string]interface{} // Extra default fields attached to every log entry.
 }
 
-// NewLogger initializes a new Logger instance that writes logs to the specified file.
+// NewLogger initializes a new Logger instance that writes logs to the specified file and stdout.
 func NewLogger(path string) (*Logger, error) {
+	// Open or create the log file.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0666)
 	if err != nil {
 		return nil, err
 	}
-	l := log.New(f, "", 0)
+
+	// Create a multiwriter to write logs to both stdout and the file.
+	mw := io.MultiWriter(os.Stdout, f)
+	l := log.New(mw, "", 0)
 
 	return &Logger{
-		logger: l,
-		file:   f,
+		logger:        l,
+		file:          f,
+		mu:            &sync.Mutex{},
+		defaultFields: make(map[string]interface{}),
 	}, nil
 }
 
-// Close properly closes the log file to prevent data loss.
+// Close properly closes the log file.
 func (lg *Logger) Close() error {
 	lg.mu.Lock()
 	defer lg.mu.Unlock()
@@ -122,41 +91,57 @@ func (lg *Logger) Close() error {
 	return nil
 }
 
-// Log writes a structured log entry to the file.
+// WithFields returns a new Logger that automatically includes the provided key/value pairs.
+func (lg *Logger) WithFields(fields map[string]interface{}) *Logger {
+	newFields := make(map[string]interface{})
+	for k, v := range lg.defaultFields {
+		newFields[k] = v
+	}
+	for k, v := range fields {
+		newFields[k] = v
+	}
+	return &Logger{
+		logger:        lg.logger,
+		mu:            lg.mu,
+		file:          lg.file,
+		defaultFields: newFields,
+	}
+}
+
+// Log writes a structured log entry to the outputs.
 func (lg *Logger) Log(ctx context.Context, level LogLevel, message string) {
 	lg.logInternal(ctx, level, message, 0, 0, 3)
 }
 
-// LogHTTP logs HTTP-related events, including response codes and request durations.
+// LogHTTP logs an HTTP event with status code and duration.
 func (lg *Logger) LogHTTP(ctx context.Context, level LogLevel, message string, code int, duration float64) {
 	lg.logInternal(ctx, level, message, code, duration, 3)
 }
 
-// logInternal is the core logging function that formats and writes log entries.
-//
-// Params:
-// - ctx: The context containing optional key-value pairs.
-// - level: The log severity level (Debug, Info, Warn, Error, Fatal).
-// - msg: The actual log message.
-// - code: Optional HTTP status code (default: 0).
-// - duration: Optional request duration in seconds (default: 0).
-// - skip: Number of stack frames to skip to get the correct caller info.
-//
-// This function ensures that all logs are structured and thread-safe.
+// logInternal is the core logging function.
 func (lg *Logger) logInternal(ctx context.Context, level LogLevel, msg string, code int, duration float64, skip int) {
 	lg.mu.Lock()
 	defer lg.mu.Unlock()
 
-	// Extract the caller function and package name automatically.
+	// Get caller information.
 	pkgName, funcName := getCallerInfo(skip)
 
-	// Generate a unique PID for each log entry.
-	pid := time.Now().Format("20060102150405") // Unique timestamp-based ID
+	// Generate a unique PID based on the current time.
+	pid := time.Now().Format("20060102150405")
 
-	// Extract context key-value pairs
-	attributes := extractContextValues(ctx)
+	// Extract values from context.
+	ctxFields := extractContextValues(ctx)
 
-	// Create a structured log entry.
+	// Merge default fields and context fields.
+	attributes := make(map[string]interface{})
+	for k, v := range lg.defaultFields {
+		attributes[k] = v
+	}
+	for k, v := range ctxFields {
+		attributes[k] = v
+	}
+
+	// Create the log entry.
 	entry := LogEntry{
 		PID:        pid,
 		Level:      level.String(),
@@ -169,17 +154,17 @@ func (lg *Logger) logInternal(ctx context.Context, level LogLevel, msg string, c
 		Attributes: attributes,
 	}
 
-	// Serialize log entry into JSON format.
+	// Serialize the entry to JSON.
 	data, err := json.Marshal(entry)
 	if err != nil {
 		lg.logger.Printf("Could not marshal log entry: %v", err)
 		return
 	}
 
-	// Write to the log file.
+	// Write the JSON log entry.
 	lg.logger.Println(string(data))
 
-	// If the log level is Fatal, immediately terminate the application.
+	// Exit if level is Fatal.
 	if level == Fatal {
 		os.Exit(1)
 	}
@@ -191,44 +176,30 @@ func getCallerInfo(skip int) (packageName, functionName string) {
 	if !ok {
 		return "unknown", "unknown"
 	}
-
 	fn := runtime.FuncForPC(pc)
 	if fn == nil {
 		return "unknown", "unknown"
 	}
-
 	fullName := fn.Name()
 	lastDot := len(fullName) - 1
 	for lastDot >= 0 && fullName[lastDot] != '.' {
 		lastDot--
 	}
-
 	return fullName[:lastDot], fullName[lastDot+1:]
 }
 
-// extractContextValues retrieves all key-value pairs from context.Context and stores them in a map.
-//
-// Params:
-// - ctx: The context containing values.
-//
-// Returns:
-// - map[string]interface{}: A map containing extracted key-value pairs from the context.
+// extractContextValues retrieves expected key/value pairs from the context.
 func extractContextValues(ctx context.Context) map[string]interface{} {
 	attributes := make(map[string]interface{})
-
 	if ctx == nil {
 		return attributes
 	}
-
-	// Retrieve values from the context
-	type contextKey string
-	contextKeys := []contextKey{"user_id", "request_id", "session_id"} // Define expected keys
-
+	// Define expected keys.
+	contextKeys := []string{"user_id", "request_id", "session_id"}
 	for _, key := range contextKeys {
 		if val := ctx.Value(key); val != nil {
-			attributes[string(key)] = val
+			attributes[key] = val
 		}
 	}
-
 	return attributes
 }

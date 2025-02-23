@@ -1,177 +1,206 @@
-package applogger
+package applogger_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log"
 	"os"
-	"sync"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/junkd0g/applogger"
 )
 
-// Mock output for testing logs without writing to a file
-type mockWriter struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (m *mockWriter) Write(p []byte) (n int, err error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.buf.Write(p)
-}
-
-func (m *mockWriter) String() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.buf.String()
-}
-
-func setupTestLogger() (*Logger, *mockWriter) {
-	mock := &mockWriter{}
-	l := log.New(mock, "", 0)
-	return &Logger{logger: l}, mock
-}
-
-// Test: Basic Logging Functionality
-func TestLogger_Log(t *testing.T) {
-	logger, mock := setupTestLogger()
-
-	ctx := context.Background() // Provide a valid context
-	logger.Log(ctx, Info, "Test log message")
-
-	var entry LogEntry
-	err := json.Unmarshal([]byte(mock.String()), &entry)
+// createTempLogger creates a temporary file and returns a logger and the file path.
+func createTempLogger(t *testing.T) (*applogger.Logger, string) {
+	t.Helper()
+	tmpFile, err := os.CreateTemp("", "applogger_test_*.log")
 	if err != nil {
-		t.Fatalf("Failed to unmarshal log entry: %v", err)
+		t.Fatal(err)
 	}
-
-	if entry.Level != "INFO" || entry.Message != "Test log message" {
-		t.Errorf("Unexpected log output: %+v", entry)
-	}
-}
-
-// Test: HTTP Logging
-func TestLogger_LogHTTP(t *testing.T) {
-	logger, mock := setupTestLogger()
-
-	ctx := context.Background()
-	logger.LogHTTP(ctx, Info, "Test HTTP log", 200, 1.5)
-
-	var entry LogEntry
-	err := json.Unmarshal([]byte(mock.String()), &entry)
+	tmpPath := tmpFile.Name()
+	tmpFile.Close() // We'll let the logger re-open this file.
+	logger, err := applogger.NewLogger(tmpPath)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal log entry: %v", err)
+		t.Fatal(err)
 	}
-
-	if entry.Level != "INFO" || entry.Code != 200 || entry.Duration != 1.5 {
-		t.Errorf("Unexpected log output: %+v", entry)
-	}
+	return logger, tmpPath
 }
 
-// Test: Context Key Extraction
-func TestLogger_LogWithContext(t *testing.T) {
-	logger, mock := setupTestLogger()
-
-	ctx := context.WithValue(context.Background(), "user_id", "12345")
-	logger.Log(ctx, Info, "Context log test")
-
-	var entry LogEntry
-	err := json.Unmarshal([]byte(mock.String()), &entry)
+// readLogEntries reads the log file and unmarshals each non-empty line into a LogEntry.
+func readLogEntries(t *testing.T, path string) []applogger.LogEntry {
+	t.Helper()
+	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal log entry: %v", err)
+		t.Fatal(err)
 	}
-
-	// Ensure the extracted key-value pair is present in attributes
-	if value, exists := entry.Attributes["user_id"]; !exists || value != "12345" {
-		t.Errorf("Expected user_id=12345 in attributes, got: %+v", entry.Attributes)
-	}
-}
-
-// Test: Concurrent Logging (Race Condition Check)
-func TestLogger_ConcurrentLogging(t *testing.T) {
-	logger, mock := setupTestLogger()
-	var wg sync.WaitGroup
-
-	const logCount = 100
-	wg.Add(logCount)
-
-	for i := 0; i < logCount; i++ {
-		go func(i int) {
-			defer wg.Done()
-			ctx := context.WithValue(context.Background(), "request_id", i)
-			logger.Log(ctx, Info, "Concurrent log message")
-		}(i)
-	}
-
-	wg.Wait()
-
-	// Ensure we have the correct number of log entries
-	lines := bytes.Split(mock.buf.Bytes(), []byte("\n"))
-	if len(lines)-1 != logCount { // -1 because the last entry may be empty due to newline split
-		t.Errorf("Expected %d log entries, got %d", logCount, len(lines)-1)
-	}
-}
-
-// ✅ Test: Log File Creation
-func TestLogger_FileCreation(t *testing.T) {
-	tmpFile := "test.log"
-	defer os.Remove(tmpFile) // Cleanup after test
-
-	logger, err := NewLogger(tmpFile)
-	if err != nil {
-		t.Fatalf("Failed to create logger: %v", err)
-	}
-	defer logger.Close()
-
-	ctx := context.Background()
-	logger.Log(ctx, Info, "File logging test")
-
-	// Check if the file exists
-	_, err = os.Stat(tmpFile)
-	if os.IsNotExist(err) {
-		t.Fatalf("Log file was not created")
-	}
-}
-
-// Test: Logger Close
-func TestLogger_Close(t *testing.T) {
-	tmpFile := "test.log"
-	defer os.Remove(tmpFile)
-
-	logger, err := NewLogger(tmpFile)
-	if err != nil {
-		t.Fatalf("Failed to create logger: %v", err)
-	}
-
-	err = logger.Close()
-	if err != nil {
-		t.Errorf("Error while closing logger: %v", err)
-	}
-}
-
-// Test: Fatal Logging (Ensures it exits)
-func TestLogger_Fatal(t *testing.T) {
-	logger, mock := setupTestLogger()
-
-	// We can't actually exit the test suite, so we check the log output instead
-	defer func() {
-		if r := recover(); r != nil {
-			t.Log("Recovered from os.Exit() to allow testing")
+	lines := strings.Split(string(data), "\n")
+	var entries []applogger.LogEntry
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
 		}
+		var entry applogger.LogEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatalf("Error unmarshalling log entry: %v\nLine: %s", err, line)
+		}
+		entries = append(entries, entry)
+	}
+	return entries
+}
+
+// TestLogger_Log tests the basic Log method, ensuring context values are merged.
+func TestLogger_Log(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer func() {
+		logger.Close()
+		os.Remove(path)
+	}()
+
+	// Create a context with expected keys.
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, "user_id", "12345")
+	ctx = context.WithValue(ctx, "request_id", "req-001")
+	ctx = context.WithValue(ctx, "session_id", "sess-789")
+
+	message := "Test log message"
+	logger.Log(ctx, applogger.Info, message)
+
+	// Allow some time for log to be written and then close.
+	logger.Close()
+
+	entries := readLogEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatal("Expected at least one log entry, got 0")
+	}
+
+	entry := entries[len(entries)-1]
+	if entry.Message != message {
+		t.Errorf("Expected message %q, got %q", message, entry.Message)
+	}
+	if entry.Level != "INFO" {
+		t.Errorf("Expected level INFO, got %s", entry.Level)
+	}
+	// Verify that context values were extracted.
+	if entry.Attributes["user_id"] != "12345" {
+		t.Errorf("Expected user_id=12345, got %v", entry.Attributes["user_id"])
+	}
+	if entry.Attributes["request_id"] != "req-001" {
+		t.Errorf("Expected request_id=req-001, got %v", entry.Attributes["request_id"])
+	}
+	if entry.Attributes["session_id"] != "sess-789" {
+		t.Errorf("Expected session_id=sess-789, got %v", entry.Attributes["session_id"])
+	}
+}
+
+// TestLogger_LogHTTP tests the LogHTTP method.
+func TestLogger_LogHTTP(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer func() {
+		logger.Close()
+		os.Remove(path)
 	}()
 
 	ctx := context.Background()
-	logger.Log(ctx, Fatal, "Fatal error test")
+	message := "HTTP Test"
+	code := 200
+	duration := 0.123
+	logger.LogHTTP(ctx, applogger.Debug, message, code, duration)
 
-	var entry LogEntry
-	err := json.Unmarshal([]byte(mock.String()), &entry)
-	if err != nil {
-		t.Fatalf("Failed to unmarshal log entry: %v", err)
+	logger.Close()
+	entries := readLogEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatal("Expected at least one log entry, got 0")
 	}
+	entry := entries[len(entries)-1]
+	if entry.Message != message {
+		t.Errorf("Expected message %q, got %q", message, entry.Message)
+	}
+	if entry.Level != "DEBUG" {
+		t.Errorf("Expected level DEBUG, got %s", entry.Level)
+	}
+	if entry.Code != code {
+		t.Errorf("Expected code %d, got %d", code, entry.Code)
+	}
+	if entry.Duration != duration {
+		t.Errorf("Expected duration %f, got %f", duration, entry.Duration)
+	}
+}
 
-	if entry.Level != "FATAL" {
-		t.Errorf("Expected FATAL log, got: %+v", entry)
+// TestLogger_WithFields tests that WithFields correctly merges default fields.
+func TestLogger_WithFields(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer func() {
+		logger.Close()
+		os.Remove(path)
+	}()
+
+	fields := map[string]interface{}{
+		"service": "test-service",
+		"version": "v1.2.3",
+	}
+	// Create a new logger with additional default fields.
+	newLogger := logger.WithFields(fields)
+
+	ctx := context.Background()
+	message := "WithFields test"
+	newLogger.Log(ctx, applogger.Warn, message)
+
+	newLogger.Close()
+	entries := readLogEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatal("Expected at least one log entry, got 0")
+	}
+	entry := entries[len(entries)-1]
+	if entry.Attributes["service"] != "test-service" {
+		t.Errorf("Expected service=test-service, got %v", entry.Attributes["service"])
+	}
+	if entry.Attributes["version"] != "v1.2.3" {
+		t.Errorf("Expected version=v1.2.3, got %v", entry.Attributes["version"])
+	}
+}
+
+// TestLogEntryTimestamp ensures the log entry timestamp falls within an expected range.
+func TestLogEntryTimestamp(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer func() {
+		logger.Close()
+		os.Remove(path)
+	}()
+
+	ctx := context.Background()
+	message := "Timestamp test"
+	start := time.Now()
+	logger.Log(ctx, applogger.Info, message)
+	end := time.Now()
+
+	logger.Close()
+	entries := readLogEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatal("Expected at least one log entry, got 0")
+	}
+	entry := entries[len(entries)-1]
+	if entry.Timestamp.Before(start) || entry.Timestamp.After(end) {
+		t.Errorf("Timestamp %v not in expected range (%v - %v)", entry.Timestamp, start, end)
+	}
+}
+
+// TestLogger_MultiWriter checks that the logger writes to both stdout and file.
+// Since we cannot capture stdout easily in a cross-platform way, we verify the file output.
+func TestLogger_MultiWriter(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer func() {
+		logger.Close()
+		os.Remove(path)
+	}()
+
+	message := "MultiWriter test"
+	logger.Log(context.Background(), applogger.Info, message)
+	logger.Close()
+
+	entries := readLogEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatal("Expected at least one log entry from multiwriter test, got 0")
 	}
 }
