@@ -11,18 +11,18 @@ import (
 	"github.com/junkd0g/applogger"
 )
 
-// createTempLogger creates a temporary file and returns a logger and the file path.
+// createTempLogger creates a temporary logger instance for tests.
 func createTempLogger(t *testing.T) (*applogger.Logger, string) {
 	t.Helper()
 	tmpFile, err := os.CreateTemp("", "applogger_test_*.log")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to create temp file: %v", err)
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close() // We'll let the logger re-open this file.
+	tmpFile.Close() // We'll let NewLogger reopen the file.
 	logger, err := applogger.NewLogger(tmpPath)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to create logger: %v", err)
 	}
 	return logger, tmpPath
 }
@@ -32,7 +32,7 @@ func readLogEntries(t *testing.T, path string) []applogger.LogEntry {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed to read file: %v", err)
 	}
 	lines := strings.Split(string(data), "\n")
 	var entries []applogger.LogEntry
@@ -43,14 +43,14 @@ func readLogEntries(t *testing.T, path string) []applogger.LogEntry {
 		}
 		var entry applogger.LogEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			t.Fatalf("Error unmarshalling log entry: %v\nLine: %s", err, line)
+			t.Fatalf("failed to unmarshal log entry: %v, line: %s", err, line)
 		}
 		entries = append(entries, entry)
 	}
 	return entries
 }
 
-// TestLogger_Log tests the basic Log method, ensuring context values are merged.
+// TestLogger_Log tests the Log method using arbitrary context fields.
 func TestLogger_Log(t *testing.T) {
 	logger, path := createTempLogger(t)
 	defer func() {
@@ -58,39 +58,35 @@ func TestLogger_Log(t *testing.T) {
 		os.Remove(path)
 	}()
 
-	// Create a context with expected keys.
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, "user_id", "12345")
-	ctx = context.WithValue(ctx, "request_id", "req-001")
-	ctx = context.WithValue(ctx, "session_id", "sess-789")
+	// Create a context with extra arbitrary fields stored under "applogger_fields".
+	extra := map[string]interface{}{
+		"custom_key": "custom_value",
+		"number":     42,
+	}
+	ctx := context.WithValue(context.Background(), "applogger_fields", extra)
 
 	message := "Test log message"
 	logger.Log(ctx, applogger.Info, message)
-
-	// Allow some time for log to be written and then close.
 	logger.Close()
 
 	entries := readLogEntries(t, path)
 	if len(entries) == 0 {
-		t.Fatal("Expected at least one log entry, got 0")
+		t.Fatalf("expected at least one log entry")
 	}
-
 	entry := entries[len(entries)-1]
 	if entry.Message != message {
-		t.Errorf("Expected message %q, got %q", message, entry.Message)
+		t.Errorf("expected message %q, got %q", message, entry.Message)
 	}
 	if entry.Level != "INFO" {
-		t.Errorf("Expected level INFO, got %s", entry.Level)
+		t.Errorf("expected level INFO, got %s", entry.Level)
 	}
-	// Verify that context values were extracted.
-	if entry.Attributes["user_id"] != "12345" {
-		t.Errorf("Expected user_id=12345, got %v", entry.Attributes["user_id"])
+	// Check that the arbitrary fields were merged.
+	if val, ok := entry.Attributes["custom_key"]; !ok || val != "custom_value" {
+		t.Errorf("expected custom_key=custom_value, got %v", entry.Attributes["custom_key"])
 	}
-	if entry.Attributes["request_id"] != "req-001" {
-		t.Errorf("Expected request_id=req-001, got %v", entry.Attributes["request_id"])
-	}
-	if entry.Attributes["session_id"] != "sess-789" {
-		t.Errorf("Expected session_id=sess-789, got %v", entry.Attributes["session_id"])
+	// Since JSON numbers are unmarshaled as float64, assert accordingly.
+	if num, ok := entry.Attributes["number"].(float64); !ok || num != 42 {
+		t.Errorf("expected number=42, got %v", entry.Attributes["number"])
 	}
 }
 
@@ -103,32 +99,32 @@ func TestLogger_LogHTTP(t *testing.T) {
 	}()
 
 	ctx := context.Background()
-	message := "HTTP Test"
-	code := 200
-	duration := 0.123
-	logger.LogHTTP(ctx, applogger.Debug, message, code, duration)
-
+	message := "HTTP log test"
+	code := 404
+	duration := 0.789
+	logger.LogHTTP(ctx, applogger.Warn, message, code, duration)
 	logger.Close()
+
 	entries := readLogEntries(t, path)
 	if len(entries) == 0 {
-		t.Fatal("Expected at least one log entry, got 0")
+		t.Fatalf("expected at least one log entry")
 	}
 	entry := entries[len(entries)-1]
 	if entry.Message != message {
-		t.Errorf("Expected message %q, got %q", message, entry.Message)
+		t.Errorf("expected message %q, got %q", message, entry.Message)
 	}
-	if entry.Level != "DEBUG" {
-		t.Errorf("Expected level DEBUG, got %s", entry.Level)
+	if entry.Level != "WARN" {
+		t.Errorf("expected level WARN, got %s", entry.Level)
 	}
 	if entry.Code != code {
-		t.Errorf("Expected code %d, got %d", code, entry.Code)
+		t.Errorf("expected code %d, got %d", code, entry.Code)
 	}
 	if entry.Duration != duration {
-		t.Errorf("Expected duration %f, got %f", duration, entry.Duration)
+		t.Errorf("expected duration %f, got %f", duration, entry.Duration)
 	}
 }
 
-// TestLogger_WithFields tests that WithFields correctly merges default fields.
+// TestLogger_WithFields tests that WithFields correctly merges extra default fields.
 func TestLogger_WithFields(t *testing.T) {
 	logger, path := createTempLogger(t)
 	defer func() {
@@ -136,33 +132,63 @@ func TestLogger_WithFields(t *testing.T) {
 		os.Remove(path)
 	}()
 
-	fields := map[string]interface{}{
-		"service": "test-service",
-		"version": "v1.2.3",
+	baseFields := map[string]interface{}{
+		"base_key": "base_value",
 	}
-	// Create a new logger with additional default fields.
-	newLogger := logger.WithFields(fields)
+	loggerWithFields := logger.WithFields(baseFields)
+	// Merge in additional fields.
+	extraFields := map[string]interface{}{
+		"extra_key": 123,
+	}
+	loggerWithFields = loggerWithFields.WithFields(extraFields)
 
 	ctx := context.Background()
-	message := "WithFields test"
-	newLogger.Log(ctx, applogger.Warn, message)
+	message := "Test WithFields"
+	loggerWithFields.Log(ctx, applogger.Debug, message)
+	loggerWithFields.Close()
 
-	newLogger.Close()
 	entries := readLogEntries(t, path)
 	if len(entries) == 0 {
-		t.Fatal("Expected at least one log entry, got 0")
+		t.Fatalf("expected at least one log entry")
 	}
 	entry := entries[len(entries)-1]
-	if entry.Attributes["service"] != "test-service" {
-		t.Errorf("Expected service=test-service, got %v", entry.Attributes["service"])
+	if entry.Level != "DEBUG" {
+		t.Errorf("expected level DEBUG, got %s", entry.Level)
 	}
-	if entry.Attributes["version"] != "v1.2.3" {
-		t.Errorf("Expected version=v1.2.3, got %v", entry.Attributes["version"])
+	if entry.Attributes["base_key"] != "base_value" {
+		t.Errorf("expected base_key=base_value, got %v", entry.Attributes["base_key"])
+	}
+	// Check the extra field; use float64 for numeric comparison.
+	if num, ok := entry.Attributes["extra_key"].(float64); !ok || num != 123 {
+		t.Errorf("expected extra_key=123, got %v", entry.Attributes["extra_key"])
 	}
 }
 
-// TestLogEntryTimestamp ensures the log entry timestamp falls within an expected range.
-func TestLogEntryTimestamp(t *testing.T) {
+// TestLogger_NoContext tests logging when a nil context is provided.
+func TestLogger_NoContext(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer func() {
+		logger.Close()
+		os.Remove(path)
+	}()
+
+	message := "No context test"
+	logger.Log(nil, applogger.Info, message)
+	logger.Close()
+
+	entries := readLogEntries(t, path)
+	if len(entries) == 0 {
+		t.Fatalf("expected at least one log entry")
+	}
+	entry := entries[len(entries)-1]
+	// With no context, attributes should be empty.
+	if len(entry.Attributes) != 0 {
+		t.Errorf("expected no attributes, got %v", entry.Attributes)
+	}
+}
+
+// TestLogger_Timestamp verifies that the log entry timestamp is within the expected time range.
+func TestLogger_Timestamp(t *testing.T) {
 	logger, path := createTempLogger(t)
 	defer func() {
 		logger.Close()
@@ -174,33 +200,47 @@ func TestLogEntryTimestamp(t *testing.T) {
 	start := time.Now()
 	logger.Log(ctx, applogger.Info, message)
 	end := time.Now()
-
 	logger.Close()
+
 	entries := readLogEntries(t, path)
 	if len(entries) == 0 {
-		t.Fatal("Expected at least one log entry, got 0")
+		t.Fatalf("expected at least one log entry")
 	}
 	entry := entries[len(entries)-1]
 	if entry.Timestamp.Before(start) || entry.Timestamp.After(end) {
-		t.Errorf("Timestamp %v not in expected range (%v - %v)", entry.Timestamp, start, end)
+		t.Errorf("timestamp %v not within expected range (%v - %v)", entry.Timestamp, start, end)
 	}
 }
 
-// TestLogger_MultiWriter checks that the logger writes to both stdout and file.
-// Since we cannot capture stdout easily in a cross-platform way, we verify the file output.
-func TestLogger_MultiWriter(t *testing.T) {
+// TestLogger_CloseTwice tests that calling Close twice does not cause a panic.
+func TestLogger_CloseTwice(t *testing.T) {
+	logger, path := createTempLogger(t)
+	defer os.Remove(path)
+
+	if err := logger.Close(); err != nil {
+		t.Errorf("first close returned error: %v", err)
+	}
+	// Second close; should not panic (even if it returns an error).
+	_ = logger.Close()
+}
+
+// TestGetCallerInfo indirectly tests that getCallerInfo returns valid values.
+// This is verified by ensuring that the log entry contains non-"unknown" package/function.
+func TestGetCallerInfo(t *testing.T) {
 	logger, path := createTempLogger(t)
 	defer func() {
 		logger.Close()
 		os.Remove(path)
 	}()
-
-	message := "MultiWriter test"
-	logger.Log(context.Background(), applogger.Info, message)
+	logger.Log(context.Background(), applogger.Info, "Testing caller info")
 	logger.Close()
 
 	entries := readLogEntries(t, path)
 	if len(entries) == 0 {
-		t.Fatal("Expected at least one log entry from multiwriter test, got 0")
+		t.Fatalf("expected at least one log entry")
+	}
+	entry := entries[len(entries)-1]
+	if entry.Package == "unknown" || entry.Func == "unknown" {
+		t.Errorf("expected valid caller info, got package=%q, func=%q", entry.Package, entry.Func)
 	}
 }

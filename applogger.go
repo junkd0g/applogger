@@ -129,7 +129,7 @@ func (lg *Logger) logInternal(ctx context.Context, level LogLevel, msg string, c
 	// Generate a unique PID based on the current time.
 	pid := time.Now().Format("20060102150405")
 
-	// Extract values from context.
+	// Extract arbitrary extra fields from context (if any).
 	ctxFields := extractContextValues(ctx)
 
 	// Merge default fields and context fields.
@@ -188,17 +188,17 @@ func getCallerInfo(skip int) (packageName, functionName string) {
 	return fullName[:lastDot], fullName[lastDot+1:]
 }
 
-// extractContextValues retrieves expected key/value pairs from the context.
+// extractContextValues retrieves arbitrary key/value pairs from the context.
+// It expects that any extra fields are stored in a map[string]interface{}
+// under the dedicated key "applogger_fields".
 func extractContextValues(ctx context.Context) map[string]interface{} {
 	attributes := make(map[string]interface{})
 	if ctx == nil {
 		return attributes
 	}
-	// Define expected keys.
-	contextKeys := []string{"user_id", "request_id", "session_id"}
-	for _, key := range contextKeys {
-		if val := ctx.Value(key); val != nil {
-			attributes[key] = val
+	if extra, ok := ctx.Value("applogger_fields").(map[string]interface{}); ok {
+		for k, v := range extra {
+			attributes[k] = v
 		}
 	}
 	return attributes
