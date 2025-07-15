@@ -570,7 +570,7 @@ func TestLogger_ErrorHandling_ReadOnlyDirectory(t *testing.T) {
 
 	// Restore permissions for cleanup
 	defer func() {
-		os.Chmod(tempDir, 0755)
+		_ = os.Chmod(tempDir, 0755)
 	}()
 
 	logPath := tempDir + "/test.log"
