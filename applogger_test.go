@@ -201,7 +201,7 @@ func TestLogger_ContextValueExtraction(t *testing.T) {
 		"numeric_value": 42,
 		"bool_value":    true,
 	}
-	ctx = context.WithValue(ctx, "applogger_fields", contextFields)
+	ctx = context.WithValue(ctx, applogger.ApploggerFieldsKey, contextFields)
 
 	logger.Log(ctx, applogger.Info, "Test context extraction")
 	logger.Close()
@@ -266,7 +266,7 @@ func TestLogger_ContextValueExtraction_NilContext(t *testing.T) {
 		os.Remove(path)
 	}()
 
-	logger.Log(nil, applogger.Info, "Test nil context")
+	logger.Log(context.TODO(), applogger.Info, "Test nil context")
 	logger.Close()
 
 	entries := readLogEntries(t, path)
@@ -298,7 +298,7 @@ func TestLogger_ConcurrentLogging(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			ctx := context.WithValue(context.Background(), "applogger_fields", map[string]interface{}{
+			ctx := context.WithValue(context.Background(), applogger.ApploggerFieldsKey, map[string]interface{}{
 				"goroutine_id": id,
 			})
 			for j := 0; j < logsPerGoroutine; j++ {
@@ -344,7 +344,7 @@ func TestLogger_ConcurrentHTTPLogging(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			ctx := context.WithValue(context.Background(), "applogger_fields", map[string]interface{}{
+			ctx := context.WithValue(context.Background(), applogger.ApploggerFieldsKey, map[string]interface{}{
 				"worker_id": id,
 			})
 			for j := 0; j < logsPerGoroutine; j++ {
@@ -402,7 +402,7 @@ func TestLogger_ConcurrentWithFields(t *testing.T) {
 			workerLogger := baseLogger.WithFields(map[string]interface{}{
 				"worker_id": id,
 			})
-			ctx := context.WithValue(context.Background(), "applogger_fields", map[string]interface{}{
+			ctx := context.WithValue(context.Background(), applogger.ApploggerFieldsKey, map[string]interface{}{
 				"request_id": id * 100,
 			})
 			workerLogger.Log(ctx, applogger.Info, "Worker message")
@@ -824,7 +824,7 @@ func TestLogger_TimestampOrdering(t *testing.T) {
 	// Check that timestamps are in chronological order
 	for i := 1; i < len(entries); i++ {
 		if entries[i].Timestamp.Before(entries[i-1].Timestamp) {
-			t.Errorf("timestamps not in chronological order: %v before %v", 
+			t.Errorf("timestamps not in chronological order: %v before %v",
 				entries[i].Timestamp, entries[i-1].Timestamp)
 		}
 	}
@@ -874,7 +874,7 @@ func main() {
 	// Run the test program
 	cmd := exec.Command("go", "run", tmpFile.Name())
 	cmd.Dir = "/Users/iordanispaschalidis/gear/applogger"
-	
+
 	err = cmd.Run()
 	if err == nil {
 		t.Errorf("expected program to exit with error, but it completed successfully")
@@ -890,16 +890,16 @@ func main() {
 	// Check that the log file was created and contains the fatal message
 	if _, err := os.Stat("fatal_test.log"); err == nil {
 		defer os.Remove("fatal_test.log")
-		
+
 		data, err := os.ReadFile("fatal_test.log")
 		if err != nil {
 			t.Fatalf("failed to read log file: %v", err)
 		}
-		
+
 		if !strings.Contains(string(data), "Fatal error occurred") {
 			t.Errorf("expected fatal message in log file, got: %s", string(data))
 		}
-		
+
 		// Check that the info message after fatal is NOT present
 		if strings.Contains(string(data), "This should not appear") {
 			t.Errorf("found message that should not appear after fatal log")
@@ -950,7 +950,7 @@ func main() {
 	// Run the test program
 	cmd := exec.Command("go", "run", tmpFile.Name())
 	cmd.Dir = "/Users/iordanispaschalidis/gear/applogger"
-	
+
 	err = cmd.Run()
 	if err == nil {
 		t.Errorf("expected program to exit with error, but it completed successfully")
@@ -966,16 +966,16 @@ func main() {
 	// Check that the log file was created and contains the fatal HTTP message
 	if _, err := os.Stat("fatal_http_test.log"); err == nil {
 		defer os.Remove("fatal_http_test.log")
-		
+
 		data, err := os.ReadFile("fatal_http_test.log")
 		if err != nil {
 			t.Fatalf("failed to read log file: %v", err)
 		}
-		
+
 		if !strings.Contains(string(data), "Fatal HTTP error") {
 			t.Errorf("expected fatal HTTP message in log file, got: %s", string(data))
 		}
-		
+
 		// Check that the info message after fatal is NOT present
 		if strings.Contains(string(data), "This should not appear") {
 			t.Errorf("found message that should not appear after fatal log")

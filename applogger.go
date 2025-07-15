@@ -188,15 +188,21 @@ func getCallerInfo(skip int) (packageName, functionName string) {
 	return fullName[:lastDot], fullName[lastDot+1:]
 }
 
+// ContextKey is a type for context keys to avoid collisions.
+type ContextKey string
+
+// ApploggerFieldsKey is the key used to store extra fields in context.
+const ApploggerFieldsKey ContextKey = "applogger_fields"
+
 // extractContextValues retrieves arbitrary key/value pairs from the context.
 // It expects that any extra fields are stored in a map[string]interface{}
-// under the dedicated key "applogger_fields".
+// under the dedicated key ApploggerFieldsKey.
 func extractContextValues(ctx context.Context) map[string]interface{} {
 	attributes := make(map[string]interface{})
 	if ctx == nil {
 		return attributes
 	}
-	if extra, ok := ctx.Value("applogger_fields").(map[string]interface{}); ok {
+	if extra, ok := ctx.Value(ApploggerFieldsKey).(map[string]interface{}); ok {
 		for k, v := range extra {
 			attributes[k] = v
 		}
