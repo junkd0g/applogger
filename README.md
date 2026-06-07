@@ -1,115 +1,185 @@
-# Applogger - The Structured Logging Library for Go
+# applogger
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/junkd0g/applogger)](https://goreportcard.com/report/github.com/junkd0g/applogger)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![GoDoc](https://pkg.go.dev/badge/github.com/junkd0g/applogger.svg)](https://pkg.go.dev/github.com/junkd0g/applogger)
 
-## 🚀 Overview
+`applogger` is a structured logging library for Go that writes logs in NDJSON
+(Newline-Delimited JSON) format to both a file and stdout.
 
-`applogger` is a **structured logging library** for Go that writes logs in **NDJSON format** (Newline Delimited JSON).
+## Why
 
-- **Structured Logging**: Outputs logs in JSON format for easy parsing.
-- **Log Levels**: Supports Debug, Info, Warn, Error, and Fatal.
-- **Concurrency Safe**: Uses mutex locking for safe concurrent writes.
-- **Automatic Caller Info**: Captures the package and function where the log originated.
-- **HTTP Logging**: Supports logging HTTP response codes and request durations.
-- **Context-Aware Logging**: Supports extracting key-value pairs from `context.Context`.
-- **Graceful Shutdown**: Ensures log files are properly closed on termination.
+Most Go services need structured logs that are cheap to grep, ship, and parse.
+`applogger` keeps that path small: one logger, one file handle, one mutex, and
+JSON entries that include the calling package and function automatically — no
+zap, no zerolog, no extra deps.
 
----
+## Features
 
-## 📦 Installation
+- Structured NDJSON output (one JSON object per line).
+- Five log levels: `Debug`, `Info`, `Warn`, `Error`, `Fatal`.
+- Concurrency-safe writes via internal mutex.
+- Automatic caller info (package + function).
+- HTTP helper that records status code and request duration.
+- Context-aware: extra fields can travel on `context.Context`.
+- Per-logger default fields via `WithFields`.
+- Writes to both stdout and a file with a single `io.MultiWriter`.
 
-To install `applogger`, simply run:
+## Requirements
+
+- Go 1.23 or newer.
+- No external dependencies.
+
+## Installation
 
 ```sh
 go get -u github.com/junkd0g/applogger
 ```
 
-## 🚀 Usage
-
-Basic Logging
+## Quick start
 
 ```go
 package main
 
 import (
-	"context"
-	"log"
-	"time"
+    "context"
+    "log"
 
-	"github.com/junkd0g/applogger"
+    "github.com/junkd0g/applogger"
 )
 
 func main() {
-	logger, err := applogger.NewLogger("app.log")
-	if err != nil {
-		log.Fatalf("Failed to initialize logger: %v", err)
-	}
-	defer logger.Close()
+    logger, err := applogger.NewLogger("app.log")
+    if err != nil {
+        log.Fatalf("init logger: %v", err)
+    }
+    defer logger.Close()
 
-	// Add extra default fields.
-	logger = logger.WithFields(map[string]interface{}{
-		"service": "payment",
-		"version": "1.0.3",
-	})
-
-	// Create a context with values.
-	ctx := context.Background()
-	ctx = context.WithValue(ctx, "user_id", "12345")
-	ctx = context.WithValue(ctx, "request_id", "req-001")
-	ctx = context.WithValue(ctx, "session_id", "sess-789")
-
-	// Log a simple message.
-	logger.Log(ctx, applogger.Info, "Service started successfully")
-
-	// Log an HTTP-related event.
-	logger.LogHTTP(ctx, applogger.Debug, "HTTP response received", 200, 0.456)
-
-	// Wait a moment to see different timestamps.
-	time.Sleep(1 * time.Second)
-
-	// Log an error.
-	logger.Log(ctx, applogger.Error, "Encountered an unexpected error")
+    logger.Log(context.Background(), applogger.Info, "service started")
 }
-
 ```
 
-Logging with Context (Key-Value Pair Extraction)
+## Usage
+
+### Default fields
+
+`WithFields` returns a new logger that attaches the given key/value pairs to
+every entry it writes:
 
 ```go
-package main
+logger = logger.WithFields(map[string]interface{}{
+    "service": "payment",
+    "version": "1.0.3",
+})
+```
 
-import (
-	"context"
-	"github.com/junkd0g/applogger"
+### Context fields
+
+Attach a `map[string]interface{}` under `applogger.ApploggerFieldsKey` and the
+logger will merge it into each entry's `attributes`:
+
+```go
+ctx := context.WithValue(context.Background(),
+    applogger.ApploggerFieldsKey,
+    map[string]interface{}{
+        "request_id": "req-001",
+        "user_id":    "12345",
+    },
+)
+logger.Log(ctx, applogger.Info, "request received")
+```
+
+### HTTP logging
+
+```go
+logger.LogHTTP(ctx, applogger.Info, "GET /api/user", 200, 0.125)
+```
+
+### Fatal
+
+`Fatal` writes the entry, then calls `os.Exit(1)`:
+
+```go
+logger.Log(ctx, applogger.Fatal, "unrecoverable failure")
+```
+
+## API Reference
+
+### Types
+
+```go
+type LogLevel int
+
+const (
+    Debug LogLevel = iota
+    Info
+    Warn
+    Error
+    Fatal
 )
 
-func main() {
-	logger, _ := applogger.NewLogger("app.log")
-	defer logger.Close()
-
-	ctx := context.WithValue(context.Background(), "userID", "12345")
-	logger.Log(ctx, applogger.Info, "User logged in")
+type LogEntry struct {
+    PID        string                 `json:"pid"`
+    Level      string                 `json:"level"`
+    Package    string                 `json:"package"`
+    Func       string                 `json:"func"`
+    Message    string                 `json:"message"`
+    Timestamp  time.Time              `json:"timestamp"`
+    Code       int                    `json:"code,omitempty"`
+    Duration   float64                `json:"duration,omitempty"`
+    Attributes map[string]interface{} `json:"attributes,omitempty"`
 }
+
+type Logger struct { /* unexported fields */ }
 ```
 
-HTTP Logging
+### Functions and methods
 
 ```go
-logger.LogHTTP(context.Background(), applogger.Info, "GET /api/user successful", 200, 0.125)
+func NewLogger(path string) (*Logger, error)
+
+func (lg *Logger) Close() error
+func (lg *Logger) WithFields(fields map[string]interface{}) *Logger
+func (lg *Logger) Log(ctx context.Context, level LogLevel, message string)
+func (lg *Logger) LogHTTP(ctx context.Context, level LogLevel, message string, code int, duration float64)
 ```
 
-Fatal Logging (Exits Application)
+### Context key
 
 ```go
-logger.Log(context.Background(), applogger.Fatal, "Critical system failure!")
+type ContextKey string
+const ApploggerFieldsKey ContextKey = "applogger_fields"
 ```
 
-## 📝 License
+Store a `map[string]interface{}` under this key on a `context.Context` to have
+its entries merged into the log entry's `attributes` field.
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+## Testing
 
-## Authors
+```sh
+go test ./...
+```
 
-- **Iordanis Paschalidis** -[junkd0g](https://github.com/junkd0g)
+With coverage:
+
+```sh
+go test -race -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
+```
+
+## Contributing
+
+1. Fork the repository.
+2. Create a feature branch (`git checkout -b feature/your-feature`).
+3. Commit your changes.
+4. Push to the branch (`git push origin feature/your-feature`).
+5. Open a pull request.
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE)
+file for details.
+
+## Author
+
+Iordanis Paschalidis — [@junkd0g](https://github.com/junkd0g)
